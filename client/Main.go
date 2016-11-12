@@ -9,6 +9,6 @@ func main() {
 		panic(err)
 	}
 
-	conn.Write([]byte("/P/"))
+	conn.Write([]byte("/C/badboy64"))
 
 }

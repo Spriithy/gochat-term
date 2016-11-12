@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"bufio"
+	"strconv"
+	"sync"
 )
 
 var (
@@ -26,7 +28,6 @@ var (
 	CONNECT_HEADER = "/C/"
 	DISCONNECT_HEADER = "/D/"
 	PING_HEADER = "/P/"
-	END_OF_DATA = "\r\n"
 )
 
 type Server struct {
@@ -37,14 +38,14 @@ type Server struct {
 	port      int
 	addr      string
 
+	running   bool
+
 	clients   map[uuid.UUID]*SClient
 	responses map[uuid.UUID]int
-
-	running   bool
 }
 
 func NewServer(name string) *Server {
-	return &Server{name, 0, "", make(map[uuid.UUID]*SClient), make(map[uuid.UUID]int), false}
+	return &Server{name, 0, "", false, sync.Mutex{}, make(map[uuid.UUID]*SClient), make(map[uuid.UUID]int)}
 }
 
 func local() string {
@@ -163,7 +164,7 @@ func (s *Server) run() {
 				}
 			case "clear": clear()
 			case "say":
-				s.sendAll(MSG_HEADER + s.name + ": " + input[4:] + END_OF_DATA)
+				s.sendAll(MSG_HEADER + s.name + ": " + input[4:])
 			default:
 				println(SERVER_HEADER(s), colors.RED + "Unknown command /" + cmd[0], colors.NONE)
 			}
@@ -201,12 +202,23 @@ func (s *Server) listen() {
 			continue
 		}
 
-		go s.process(data)
+		go s.process(conn, data)
 	}
 }
 
-func (s *Server) process(data []byte) {
-	println(string(data))
+func (s *Server) process(conn net.Conn, data []byte) {
+	content := string(data)
+
+	switch {
+	case strings.HasPrefix(content, CONNECT_HEADER):
+		id := uuid.NextUUID()
+		name := strings.Split(content, CONNECT_HEADER)[1]
+		name = name[:len(name) - 2]
+		addr := strings.Split(conn.RemoteAddr().String(), ":")
+		port, _ := strconv.Atoi(addr[1])
+		s.clients[id] = ServerClient(name, addr[0], port)
+		println(SERVER_HEADER(s), "User", colors.LIGHT_CYAN + name + colors.NONE + "@" + colors.LIGHT_GREEN + addr[0] + ":" + addr[1] + colors.NONE, "has connected!")
+	}
 }
 
 func (s *Server) pingAll() {
@@ -214,7 +226,7 @@ func (s *Server) pingAll() {
 		s.sendAll(PING_HEADER + s.name)
 		time.Sleep(time.Second * 2)
 		for _, c := range s.clients {
-			if _, ok := s.responses[c.id]; ok {
+			if _, ok := s.responses[c.id]; !ok {
 				if c.attempt >= maxAttempts {
 					s.disconnect(c.id, false)
 				} else {
@@ -223,6 +235,7 @@ func (s *Server) pingAll() {
 			} else {
 				delete(s.responses, c.id)
 				c.attempt = 0
+				break
 			}
 		}
 	}
@@ -230,8 +243,7 @@ func (s *Server) pingAll() {
 
 func (s *Server) sendAll(data string) {
 	if data[:3] == MSG_HEADER {
-		message := strings.Split(data[3:], END_OF_DATA)[0]
-		println("[" + colors.LIGHT_RED + "message" + colors.NONE + "]", message)
+		println("[" + colors.LIGHT_RED + "message" + colors.NONE + "]", data[3:])
 	}
 
 	for _, c := range s.clients {
@@ -243,10 +255,11 @@ func (s *Server) send(c *SClient, data string) {
 	ca := formatAddress(c.addr, c.port)
 	conn, err := net.Dial("tcp", ca)
 	if err != nil {
-		println(SERVER_HEADER(s), "couldn't connect to client :", colors.LIGHT_BLUE + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE)
-		println(strings.Repeat(" ", len(SERVER_HEADER(s)) - 1), colors.RED, err.Error(), colors.NONE)
+		println(SERVER_HEADER(s), "Couldn't connect to client :", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE)
+		println(strings.Repeat(" ", len(SERVER_HEADER(s)) - 1), colors.RED, err.Error(), colors.NONE, + c.attempt)
+		return
 	}
-	_, err = conn.Write([]byte(data + END_OF_DATA))
+	_, err = conn.Write([]byte(data))
 
 	if err != nil {
 		println(SERVER_HEADER(s), "couldn't send data to client :", )
@@ -265,11 +278,12 @@ func (s *Server) disconnect(id uuid.UUID, status bool) {
 
 func (s *Server) disconnectClient(c *SClient, status bool) {
 	ca := formatAddress(c.addr, c.port)
-	s.clients[c.id] = nil
+	delete(s.clients, c.id)
+	delete(s.responses, c.id)
 	if status {
-		println("Client", colors.LIGHT_BLUE + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE + " disconnected.")
+		println("Client", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE + " disconnected.")
 	} else {
-		println("Client", colors.LIGHT_BLUE + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE + " timed out.")
+		println("Client", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE + " timed out.")
 	}
 }
 
