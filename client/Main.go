@@ -16,7 +16,7 @@ var (
 var ID string
 
 func main() {
-	conn, err := net.Dial("tcp", "127.0.0.1:8081")
+	conn, err := net.Dial("tcp", "192.168.0.10:8081")
 	if err != nil {
 		panic(err)
 	}
