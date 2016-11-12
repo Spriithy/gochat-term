@@ -122,8 +122,8 @@ func (s *Server) run() {
 
 			if err != nil {
 				println(SERVER_HEADER(s), colors.RED + "Error when reading your input")
-				println(strings.Repeat(" ", len(SERVER_HEADER(s))), err.Error())
-				println(strings.Repeat(" ", len(SERVER_HEADER(s))), "Ignoring it.", colors.NONE)
+				println(strings.Repeat(" ", len(s.name) + 2), err.Error())
+				println(strings.Repeat(" ", len(s.name) + 2), "Ignoring it.", colors.NONE)
 				continue
 			}
 
@@ -164,7 +164,7 @@ func (s *Server) run() {
 				}
 			case "clear": clear()
 			case "say":
-				s.sendAll(MSG_HEADER + "/" + s.name + "/" + input[4:])
+				s.sendAll(MSG_HEADER + s.name + "/" + timestamp() + "/" + input[4:])
 			default:
 				println(SERVER_HEADER(s), colors.RED + "Unknown command `" + cmd[0] + "`", colors.NONE)
 			}
@@ -197,8 +197,8 @@ func (s *Server) listen() {
 		n, err := conn.Read(data)
 		if err != nil {
 			println(SERVER_HEADER(s), colors.RED + "error when reading packet")
-			println(strings.Repeat(" ", len(SERVER_HEADER(s))), err.Error())
-			println(strings.Repeat(" ", len(SERVER_HEADER(s))), "Ignoring it.", colors.NONE)
+			println(strings.Repeat(" ", len(s.name) + 1), colors.RED, err.Error())
+			println(strings.Repeat(" ", len(s.name) + 2), "Ignoring it.", colors.NONE)
 			continue
 		}
 
@@ -216,24 +216,24 @@ func (s *Server) process(conn net.Conn, data []byte) {
 		name := strings.Split(content, CONNECT_HEADER)[1]
 		addr := strings.Split(conn.RemoteAddr().String(), ":")
 		port, _ := strconv.Atoi(addr[1])
-		s.clients.Set(id, ServerClient(id, name, addr[0], port))
 		println(SERVER_HEADER(s), "User", colors.LIGHT_CYAN + name + colors.NONE + "@" + colors.LIGHT_GREEN + addr[0] + ":" + addr[1] + colors.NONE, "has connected!")
+		s.clients.Set(id, ServerClient(id, name, addr[0], port))
 		c, _ := s.clients.Get(id)
 		s.send(c, CONNECT_HEADER + string(id))
 	case strings.HasPrefix(content, DISCONNECT_HEADER):
-		id := strings.Split(content, DISCONNECT_HEADER)[1]
+		id := strings.Split(content[3:], "/")[0][:35]
 		s.disconnect(uuid.UUID(id), "leave")
 	}
 }
 
 func (s *Server) sendAll(data string) {
 	header := data[:3]
-	parts := strings.Split(data[3:], "/")
-	sender := parts[1]
-	message := data[5 + len(sender):]
-	t := timestamp()
 
 	if header == MSG_HEADER {
+		parts := strings.Split(data[3:], "/")
+		sender := parts[0]
+		t := parts[1]
+		message := data[len(sender) + 10:]
 		println("[" + colors.LIGHT_RED + t + colors.NONE + "] <" + colors.LIGHT_BLUE + sender + colors.NONE + ">", message)
 	}
 
@@ -258,7 +258,7 @@ func (s *Server) send(c *SClient, data string) {
 
 			if err != nil {
 				println(SERVER_HEADER(s), "Couldn't reach client :", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE, "(attempt:", c.attempt, ")")
-				println(strings.Repeat(" ", len(SERVER_HEADER(s))), colors.RED, err.Error(), colors.NONE)
+				println(strings.Repeat(" ", len(s.name) + 1), colors.RED + err.Error(), colors.NONE)
 				conn, err = net.Dial("tcp", ca)
 				c.attempt++
 				time.Sleep(time.Second)
@@ -268,7 +268,7 @@ func (s *Server) send(c *SClient, data string) {
 
 			if err != nil {
 				println(SERVER_HEADER(s), "couldn't send data to client", colors.LIGHT_BLUE + c.name + colors.NONE, "(attempt:", c.attempt, ")")
-				println(strings.Repeat(" ", len(SERVER_HEADER(s))), colors.RED, err.Error(), colors.NONE)
+				println(strings.Repeat(" ", len(s.name) + 1), colors.RED, err.Error(), colors.NONE)
 				c.attempt++
 				time.Sleep(time.Second)
 				continue outside
@@ -280,12 +280,14 @@ func (s *Server) send(c *SClient, data string) {
 }
 
 func (s *Server) disconnect(id uuid.UUID, reason string) {
+	var c *SClient
 	for k := range s.clients.Iter() {
 		if id.Match(k.id) {
-			s.disconnectClient(k, reason)
-			return
+			c = k
+			break
 		}
 	}
+	s.disconnectClient(c, reason)
 }
 
 func (s *Server) disconnectClient(c *SClient, reason string) {
@@ -298,9 +300,9 @@ func (s *Server) disconnectClient(c *SClient, reason string) {
 	s.sendAll(DISCONNECT_HEADER + c.name + "/" + timestamp() + "/" + reason)
 
 	print("Client ", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE, " ")
+	s.send(c, DISCONNECT_HEADER + c.name + "/" + timestamp() + "/" + reason)
 	switch reason {
 	case "kick":
-		s.send(c, DISCONNECT_HEADER + c.name + "/" + timestamp() + "/" + reason)
 		println("has been kicked from the server.")
 	case "timeout":
 		println("has timed out.")
