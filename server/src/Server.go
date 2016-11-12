@@ -10,7 +10,6 @@ import (
 	"time"
 	"bufio"
 	"strconv"
-	"sync"
 )
 
 var (
@@ -40,12 +39,12 @@ type Server struct {
 
 	running   bool
 
-	clients   map[uuid.UUID]*SClient
-	responses map[uuid.UUID]int
+	clients   *ClientMap
+	responses *ResponseMap
 }
 
 func NewServer(name string) *Server {
-	return &Server{name, 0, "", false, sync.Mutex{}, make(map[uuid.UUID]*SClient), make(map[uuid.UUID]int)}
+	return &Server{name, 0, "", false, NewClientMap(), NewResponseMap()}
 }
 
 func local() string {
@@ -142,7 +141,7 @@ func (s *Server) run() {
 
 				name := cmd[1]
 				found := false
-				for _, c := range s.clients {
+				for c := range s.clients.Iter() {
 					if c.name == name {
 						s.disconnectClient(c, true)
 						found = true
@@ -154,12 +153,12 @@ func (s *Server) run() {
 					println(SERVER_HEADER(s), colors.RED + "Unknown username", "`" + name + "`", colors.NONE)
 				}
 			case "list":
-				if len(s.clients) == 0 {
+				if len(s.clients.Iter()) == 0 {
 					println(SERVER_HEADER(s), "No clients are connected.")
 					continue
 				}
 
-				for _, c := range s.clients {
+				for c := range s.clients.Iter() {
 					println("\t*", colors.LIGHT_BLUE + c.name, colors.NONE)
 				}
 			case "clear": clear()
@@ -216,7 +215,7 @@ func (s *Server) process(conn net.Conn, data []byte) {
 		name = name[:len(name) - 2]
 		addr := strings.Split(conn.RemoteAddr().String(), ":")
 		port, _ := strconv.Atoi(addr[1])
-		s.clients[id] = ServerClient(name, addr[0], port)
+		s.clients.Set(id, ServerClient(name, addr[0], port))
 		println(SERVER_HEADER(s), "User", colors.LIGHT_CYAN + name + colors.NONE + "@" + colors.LIGHT_GREEN + addr[0] + ":" + addr[1] + colors.NONE, "has connected!")
 	}
 }
@@ -225,15 +224,15 @@ func (s *Server) pingAll() {
 	for s.running {
 		s.sendAll(PING_HEADER + s.name)
 		time.Sleep(time.Second * 2)
-		for _, c := range s.clients {
-			if _, ok := s.responses[c.id]; !ok {
+		for c := range s.clients.Iter() {
+			if _, ok := s.responses.Get(c.id); !ok {
 				if c.attempt >= maxAttempts {
 					s.disconnect(c.id, false)
 				} else {
 					c.attempt++
 				}
 			} else {
-				delete(s.responses, c.id)
+				s.responses.Remove(c.id)
 				c.attempt = 0
 				break
 			}
@@ -246,7 +245,7 @@ func (s *Server) sendAll(data string) {
 		println("[" + colors.LIGHT_RED + "message" + colors.NONE + "]", data[3:])
 	}
 
-	for _, c := range s.clients {
+	for c := range s.clients.Iter() {
 		s.send(c, data)
 	}
 }
@@ -268,7 +267,7 @@ func (s *Server) send(c *SClient, data string) {
 }
 
 func (s *Server) disconnect(id uuid.UUID, status bool) {
-	for _, k := range s.clients {
+	for k := range s.clients.Iter() {
 		if id.Match(k.id) {
 			s.disconnectClient(k, status)
 			return
@@ -278,8 +277,8 @@ func (s *Server) disconnect(id uuid.UUID, status bool) {
 
 func (s *Server) disconnectClient(c *SClient, status bool) {
 	ca := formatAddress(c.addr, c.port)
-	delete(s.clients, c.id)
-	delete(s.responses, c.id)
+	s.clients.Remove(c.id)
+	s.responses.Remove(c.id)
 	if status {
 		println("Client", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE + " disconnected.")
 	} else {
@@ -288,7 +287,7 @@ func (s *Server) disconnectClient(c *SClient, status bool) {
 }
 
 func (s *Server) quit() {
-	for _, k := range s.clients {
+	for k := range s.clients.Iter() {
 		s.disconnectClient(k, true)
 	}
 	s.running = false
