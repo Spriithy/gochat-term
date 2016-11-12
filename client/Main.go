@@ -47,8 +47,6 @@ func process(conn net.Conn, data []byte) {
 	case strings.HasPrefix(content, CONNECT_HEADER):
 		ID = content[len(CONNECT_HEADER):]
 		println("My ID is :", ID)
-	case strings.HasPrefix(content, PING_HEADER):
-		send("127.0.0.1:8081", PING_HEADER + ID)
 	}
 }
 
