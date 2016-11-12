@@ -51,21 +51,21 @@ func (m *ClientMap) Iter() <-chan *SClient {
 
 type ResponseMap struct {
 	sync.RWMutex
-	items map[uuid.UUID]int
+	items map[uuid.UUID]bool
 }
 
 func NewResponseMap() *ResponseMap {
-	return &ResponseMap{sync.RWMutex{}, make(map[uuid.UUID]int)}
+	return &ResponseMap{sync.RWMutex{}, make(map[uuid.UUID]bool)}
 }
 
-func (m *ResponseMap) Get(id uuid.UUID) (int, bool) {
+func (m *ResponseMap) Get(id uuid.UUID) (bool, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	value, ok := m.items[id]
 	return value, ok
 }
 
-func (m *ResponseMap) Set(id uuid.UUID, i int) {
+func (m *ResponseMap) Set(id uuid.UUID, i bool) {
 	m.Lock()
 	defer m.Unlock()
 	m.items[id] = i
@@ -77,8 +77,8 @@ func (m *ResponseMap) Remove(id uuid.UUID) {
 	delete(m.items, id)
 }
 
-func (m *ResponseMap) Iter() <-chan int {
-	c := make(chan int)
+func (m *ResponseMap) Iter() <-chan bool {
+	c := make(chan bool)
 
 	go func() {
 		m.RLock()

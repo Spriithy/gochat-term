@@ -13,8 +13,8 @@ type SClient struct {
 	id      uuid.UUID
 }
 
-func ServerClient(name, addr string, port int) *SClient {
-	return &SClient{name, addr, port, 0, uuid.NextUUID()}
+func ServerClient(id uuid.UUID, name, addr string, port int) *SClient {
+	return &SClient{name, addr, port, 0, id}
 }
 
 func (c *SClient) ID() uuid.UUID {

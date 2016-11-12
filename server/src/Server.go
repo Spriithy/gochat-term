@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"github.com/Spriithy/go-uuid"
 	"strings"
-	"time"
 	"bufio"
 	"strconv"
+	"time"
 )
 
 var (
@@ -101,14 +101,15 @@ func help() {
 
 func (s *Server) run() {
 	sem := make(chan int) // Semaphore pattern
-	go func() {
-		s.pingAll()
-		sem <- 0
-	}()
 
 	go func() {
 		s.listen()
 		sem <- 1
+	}()
+
+	go func() {
+		s.pingAll()
+		sem <- 0
 	}()
 
 	var (
@@ -207,6 +208,7 @@ func (s *Server) listen() {
 
 func (s *Server) process(conn net.Conn, data []byte) {
 	content := string(data)
+	println(content)
 
 	switch {
 	case strings.HasPrefix(content, CONNECT_HEADER):
@@ -215,8 +217,15 @@ func (s *Server) process(conn net.Conn, data []byte) {
 		name = name[:len(name) - 2]
 		addr := strings.Split(conn.RemoteAddr().String(), ":")
 		port, _ := strconv.Atoi(addr[1])
-		s.clients.Set(id, ServerClient(name, addr[0], port))
+		s.clients.Set(id, ServerClient(id, name, addr[0], port))
+		s.responses.Set(id, false)
 		println(SERVER_HEADER(s), "User", colors.LIGHT_CYAN + name + colors.NONE + "@" + colors.LIGHT_GREEN + addr[0] + ":" + addr[1] + colors.NONE, "has connected!")
+		println(colors.RED, id, colors.NONE)
+		c, _ := s.clients.Get(id)
+		s.send(c, CONNECT_HEADER + string(id))
+	case strings.HasPrefix(content, PING_HEADER):
+		id := strings.Split(content, PING_HEADER)[1]
+		s.responses.Set(uuid.UUID(id), true)
 	}
 }
 
@@ -225,18 +234,21 @@ func (s *Server) pingAll() {
 		s.sendAll(PING_HEADER + s.name)
 		time.Sleep(time.Second * 2)
 		for c := range s.clients.Iter() {
-			if _, ok := s.responses.Get(c.id); !ok {
+			if r, ok := s.responses.Get(c.id); !ok || !r {
+				println(c.id, "didn't answer")
 				if c.attempt >= maxAttempts {
-					s.disconnect(c.id, false)
+					s.disconnectClient(c, false)
 				} else {
 					c.attempt++
 				}
 			} else {
-				s.responses.Remove(c.id)
+				println(c.id, "answered!")
+				s.responses.Set(c.id, false)
 				c.attempt = 0
 				break
 			}
 		}
+		//s.responses.items = make(map[uuid.UUID]bool)
 	}
 }
 
@@ -261,7 +273,7 @@ func (s *Server) send(c *SClient, data string) {
 	_, err = conn.Write([]byte(data))
 
 	if err != nil {
-		println(SERVER_HEADER(s), "couldn't send data to client :", )
+		println(SERVER_HEADER(s), "couldn't send data to client :")
 		println(strings.Repeat(" ", len(SERVER_HEADER(s)) - 1), colors.RED, err.Error(), colors.NONE)
 	}
 }
@@ -276,9 +288,14 @@ func (s *Server) disconnect(id uuid.UUID, status bool) {
 }
 
 func (s *Server) disconnectClient(c *SClient, status bool) {
+	if _, ok := s.clients.Get(c.id); !ok {
+		return
+	}
+
 	ca := formatAddress(c.addr, c.port)
 	s.clients.Remove(c.id)
 	s.responses.Remove(c.id)
+
 	if status {
 		println("Client", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE + " disconnected.")
 	} else {
