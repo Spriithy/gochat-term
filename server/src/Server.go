@@ -254,7 +254,7 @@ func (s *Server) send(c *SClient, data string) {
 	ca := formatAddress(c.addr, c.port)
 	conn, err := net.Dial("tcp", ca)
 	if err != nil {
-		println(SERVER_HEADER(s), "Couldn't connect to client :", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE)
+		println(SERVER_HEADER(s), "Couldn't reach client :", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE)
 		println(strings.Repeat(" ", len(SERVER_HEADER(s)) - 1), colors.RED, err.Error(), colors.NONE, + c.attempt)
 		return
 	}

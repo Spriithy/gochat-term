@@ -22,14 +22,14 @@ func (m *ClientMap) Get(id uuid.UUID) (*SClient, bool) {
 }
 
 func (m *ClientMap) Set(id uuid.UUID, c *SClient) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	m.items[id] = c
 }
 
 func (m *ClientMap) Remove(id uuid.UUID) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	delete(m.items, id)
 }
 
@@ -38,11 +38,11 @@ func (m *ClientMap) Iter() <-chan *SClient {
 
 	go func() {
 		m.RLock()
-		defer m.RUnlock()
 
 		for _, v := range m.items {
 			c <- v
 		}
+		m.RUnlock()
 		close(c)
 	}()
 
@@ -66,14 +66,14 @@ func (m *ResponseMap) Get(id uuid.UUID) (int, bool) {
 }
 
 func (m *ResponseMap) Set(id uuid.UUID, i int) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	m.items[id] = i
 }
 
 func (m *ResponseMap) Remove(id uuid.UUID) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 	delete(m.items, id)
 }
 
@@ -82,11 +82,11 @@ func (m *ResponseMap) Iter() <-chan int {
 
 	go func() {
 		m.RLock()
-		defer m.RUnlock()
 
 		for _, v := range m.items {
 			c <- v
 		}
+		m.RUnlock()
 		close(c)
 	}()
 
