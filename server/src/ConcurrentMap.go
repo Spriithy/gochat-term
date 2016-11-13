@@ -44,7 +44,6 @@ func (m *ClientMap) Iter() <-chan *SClient {
 
 	go func() {
 		m.RLock()
-
 		for _, v := range m.items {
 			c <- v
 		}
