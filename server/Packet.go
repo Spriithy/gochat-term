@@ -81,23 +81,22 @@ func ParseTimeStamp(str string) (*TimeStamp, error) {
 	}
 
 	h, err := strconv.Atoi(t[0])
+	m, err := strconv.Atoi(t[1])
+	s, err := strconv.Atoi(t[2])
+
 	if err != nil {
-		return nil, err
-	} else if h > 23 || h < 0 {
+		return nil, errors.New("unmatchable digit pattern when parsing TimeStamp")
+	}
+
+	if h > 23 || h < 0 {
 		return nil, errors.New("out of bounds hour in ParseTimeStamp")
 	}
 
-	m, err := strconv.Atoi(t[1])
-	if err != nil {
-		return nil, err
-	} else if m > 59 || m < 0 {
+	if m > 59 || m < 0 {
 		return nil, errors.New("out of bounds minute in ParseTimeStamp")
 	}
 
-	s, err := strconv.Atoi(t[2])
-	if err != nil {
-		return nil, err
-	} else if s > 59 || s < 0 {
+	if s > 59 || s < 0 {
 		return nil, errors.New("out of bounds second in ParseTimeStamp")
 	}
 
@@ -126,6 +125,29 @@ type Packet interface {
 
 	// Content returns the string content of the Packet
 	Content() string
+}
+
+// CompilePacket compiles an input connection into an actual Packet
+//
+func CompilePacket(conn net.Conn) (Packet, error) {
+	var err error
+
+	b := make([]byte, MaxPacketSize)
+
+	_, err = conn.Read(b)
+	if err != nil {
+		return nil, err
+	}
+
+	switch b[1] {
+	case ConnectHeader, DisconnectHeader:
+		return NewConnectionPacket(conn)
+	case MessageHeader:
+		return NewMessagePacket(conn)
+	}
+
+	// always try ?
+	return newDataPacket(conn)
 }
 
 // DataPacket is the simplest kind of Packet a server can handle
@@ -370,7 +392,7 @@ func (p *MessagePacket) Destination() string {
 	return p.dst
 }
 
-// Content : Overwrite dataPacket.Conten() to return only the message's content
-func (p *MessagePacket) Content() string {
+// Message : returns the Message-only part of the content
+func (p *MessagePacket) Message() string {
 	return p.msg
 }
