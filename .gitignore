@@ -1,4 +1,5 @@
-
+.vscode/
 server/server
-
+old/server
 client/client
+gochat-term
