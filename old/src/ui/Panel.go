@@ -1,7 +1,8 @@
-package ui
+package old_ui
 
 import (
 	"fmt"
+
 	"github.com/jroimartin/gocui"
 )
 
@@ -12,23 +13,23 @@ func doUpdate(g *gocui.Gui) error {
 }
 
 type Panel struct {
-	name   string
-	title  string
+	name  string
+	title string
 
-	x, y   int
-	z, t   int
+	x, y int
+	z, t int
 
 	scroll bool
 	border bool
 	edit   bool
 	wrap   bool
 
-	bg     gocui.Attribute
-	fg     gocui.Attribute
+	bg gocui.Attribute
+	fg gocui.Attribute
 
 	update UpdateFunc
 
-	buf    string
+	buf string
 }
 
 func NewPanel(name, title string, x, y, z, t int) *Panel {
@@ -44,7 +45,7 @@ func NewPanel(name, title string, x, y, z, t int) *Panel {
 
 func (p *Panel) Layout(g *gocui.Gui) error {
 	mx, my := g.Size()
-	v, err := g.SetView(p.name, 0 + p.x, 0 + p.y, mx - p.z, my - p.t)
+	v, err := g.SetView(p.name, 0+p.x, 0+p.y, mx-p.z, my-p.t)
 	if err != nil {
 		if err != gocui.ErrUnknownView {
 			return err

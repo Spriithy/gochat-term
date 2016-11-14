@@ -1,4 +1,4 @@
-package server
+package old_server
 
 import (
 	"github.com/Spriithy/go-uuid"
@@ -10,7 +10,7 @@ type SClient struct {
 	port    int
 	attempt int
 
-	id      uuid.UUID
+	id uuid.UUID
 }
 
 func ServerClient(id uuid.UUID, name, addr string, port int) *SClient {

@@ -1,15 +1,16 @@
-package server
+package old_server
 
 import (
+	"fmt"
 	"net"
 	"os"
-	"fmt"
-	"strings"
 	"strconv"
+	"strings"
 
-	"github.com/Spriithy/go-uuid"
-	"github.com/Spriithy/go-colors"
 	"time"
+
+	"github.com/Spriithy/go-colors"
+	"github.com/Spriithy/go-uuid"
 )
 
 var (
@@ -27,32 +28,32 @@ var (
 		return "[" + colors.LIGHT_BLUE + s.name + colors.NONE + "]"
 	}
 
-	MSG_HEADER = "/M/"
-	CONNECT_HEADER = "/C/"
+	MSG_HEADER        = "/M/"
+	CONNECT_HEADER    = "/C/"
 	DISCONNECT_HEADER = "/D/"
 	//PING_HEADER = "/P/"
 )
 
 type Server struct {
 	// Server Infos
-	name    string
+	name string
 
 	// Network infos
-	port    int
-	addr    string
+	port int
+	addr string
 
 	running bool
 
 	clients *ClientMap
 
-	gui     *ServerUI
+	gui *ServerUI
 }
 
-func (s *Server) Print(a ... interface{}) {
+func (s *Server) Print(a ...interface{}) {
 	s.gui.Print(a...)
 }
 
-func (s *Server) Println(a ... interface{}) {
+func (s *Server) Println(a ...interface{}) {
 	s.gui.Println(a...)
 }
 
@@ -67,7 +68,7 @@ func timestamp() string {
 func local() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		println(colors.RED + "Error recording net interfaces :", err.Error(), colors.NONE)
+		println(colors.RED+"Error recording net interfaces :", err.Error(), colors.NONE)
 		os.Exit(1)
 	}
 
@@ -118,13 +119,13 @@ func (s *Server) Start(port int) {
 }
 
 func (s *Server) help() {
-	s.Println(colors.LIGHT_GREEN + "---[ Available commands ]---", colors.NONE)
-	s.Println(colors.RED + "  help", colors.NONE, "\t\tprints a list of commands")
-	s.Println(colors.RED + "  say ", colors.NONE, "\t\tbroadcasts a message")
-	s.Println(colors.RED + "  clear", colors.NONE, "\t\tclears the console")
-	s.Println(colors.RED + "  list", colors.NONE, "\t\tlists the currently connected clients")
-	s.Println(colors.RED + "  kick", colors.LIGHT_CYAN, "[username]", colors.NONE, "\tkicks a user")
-	s.Println(colors.RED + "  quit", colors.NONE, "\t\tshuts down the server")
+	s.Println(colors.LIGHT_GREEN+"---[ Available commands ]---", colors.NONE)
+	s.Println(colors.RED+"  help", colors.NONE, "\t\tprints a list of commands")
+	s.Println(colors.RED+"  say ", colors.NONE, "\t\tbroadcasts a message")
+	s.Println(colors.RED+"  clear", colors.NONE, "\t\tclears the console")
+	s.Println(colors.RED+"  list", colors.NONE, "\t\tlists the currently connected clients")
+	s.Println(colors.RED+"  kick", colors.LIGHT_CYAN, "[username]", colors.NONE, "\tkicks a user")
+	s.Println(colors.RED+"  quit", colors.NONE, "\t\tshuts down the server")
 }
 
 func (s *Server) run() {
@@ -137,7 +138,7 @@ func (s *Server) run() {
 
 	var (
 		input string
-		cmd []string
+		cmd   []string
 	)
 	go func() {
 		for s.running {
@@ -147,28 +148,30 @@ func (s *Server) run() {
 				continue
 			}
 
-			input = input[:len(input) - 1]
+			input = input[:len(input)-1]
 			cmd = strings.Split(input, " ")
 			switch cmd[0] {
-			case "help": s.help()
-			case "quit": s.quit()
+			case "help":
+				s.help()
+			case "quit":
+				s.quit()
 			case "kick":
 				if len(cmd) == 1 || len(cmd[1]) == 0 {
-					s.Println(TS(), colors.RED + "Missing username in `kick` command.", colors.NONE)
+					s.Println(TS(), colors.RED+"Missing username in `kick` command.", colors.NONE)
 					continue
 				}
 
 				name := cmd[1]
 
 				if len(name) < 3 {
-					s.Println(TS(), colors.RED + "Name must be at least 3 characters long." + colors.NONE)
+					s.Println(TS(), colors.RED+"Name must be at least 3 characters long."+colors.NONE)
 					continue
 				}
 
 				found, c := s.hasClientNamed(name)
 
 				if !found {
-					s.Println(TS(), colors.RED + "Unknown username", "`" + name + "`", colors.NONE)
+					s.Println(TS(), colors.RED+"Unknown username", "`"+name+"`", colors.NONE)
 				} else {
 					s.disconnectClient(c, "kick")
 				}
@@ -183,25 +186,26 @@ func (s *Server) run() {
 					if cmd[1] == "-i" {
 						info = true
 					} else {
-						s.Println(TS(), "Unknown parameter to", "`" + cmd[0] + "`", ":", "`" + cmd[1] + "`")
+						s.Println(TS(), "Unknown parameter to", "`"+cmd[0]+"`", ":", "`"+cmd[1]+"`")
 						continue
 					}
 				}
 
 				s.Println(TS(), s.clients.Size(), " Connected clients:")
 				for c := range s.clients.Iter() {
-					print("\t* ", colors.LIGHT_CYAN + c.name + colors.NONE)
+					print("\t* ", colors.LIGHT_CYAN+c.name+colors.NONE)
 					if info {
-						s.Println("@" + colors.LIGHT_GREEN + c.addr + ":" + strconv.Itoa(c.port) + colors.RED, fmt.Sprintf("%40s", c.id), colors.NONE)
+						s.Println("@"+colors.LIGHT_GREEN+c.addr+":"+strconv.Itoa(c.port)+colors.RED, fmt.Sprintf("%40s", c.id), colors.NONE)
 					} else {
 						s.Println()
 					}
 				}
-			case "clear": s.Println("Not yet implemented")
+			case "clear":
+				s.Println("Not yet implemented")
 			case "say":
 				s.sendAll(MSG_HEADER + s.name + "/" + timestamp() + "/" + input[4:])
 			default:
-				s.Println(SERVER_HEADER(s), colors.RED + "Unknown command `" + cmd[0] + "`", colors.NONE)
+				s.Println(SERVER_HEADER(s), colors.RED+"Unknown command `"+cmd[0]+"`", colors.NONE)
 			}
 		}
 		sem <- 2
@@ -214,13 +218,13 @@ func (s *Server) listen() {
 
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		s.Println(SERVER_HEADER(s), colors.RED + "Error when listening")
+		s.Println(SERVER_HEADER(s), colors.RED+"Error when listening")
 		s.Println(strings.Repeat(" ", len(SERVER_HEADER(s))), err.Error(), colors.NONE)
 		os.Exit(1)
 	}
 	defer l.Close()
 
-	s.Println(SERVER_HEADER(s), "is now running on", colors.LIGHT_GREEN + address + colors.NONE)
+	s.Println(SERVER_HEADER(s), "is now running on", colors.LIGHT_GREEN+address+colors.NONE)
 	var conn net.Conn
 	for s.running {
 		data := make([]byte, 1024)
@@ -231,9 +235,9 @@ func (s *Server) listen() {
 
 		n, err := conn.Read(data)
 		if err != nil {
-			s.Println(SERVER_HEADER(s), colors.RED + "error when reading packet")
-			s.Println(strings.Repeat(" ", len(s.name) + 1), colors.RED, err.Error())
-			s.Println(strings.Repeat(" ", len(s.name) + 2), "Ignoring it.", colors.NONE)
+			s.Println(SERVER_HEADER(s), colors.RED+"error when reading packet")
+			s.Println(strings.Repeat(" ", len(s.name)+1), colors.RED, err.Error())
+			s.Println(strings.Repeat(" ", len(s.name)+2), "Ignoring it.", colors.NONE)
 			continue
 		}
 
@@ -251,10 +255,10 @@ func (s *Server) process(conn net.Conn, data []byte) {
 		name := strings.Split(content, CONNECT_HEADER)[1]
 		addr := strings.Split(conn.RemoteAddr().String(), ":")
 		port, _ := strconv.Atoi(addr[1])
-		s.Println(SERVER_HEADER(s), "User", colors.LIGHT_CYAN + name + colors.NONE + "@" + colors.LIGHT_GREEN + addr[0] + ":" + addr[1] + colors.NONE, "has joined!")
+		s.Println(SERVER_HEADER(s), "User", colors.LIGHT_CYAN+name+colors.NONE+"@"+colors.LIGHT_GREEN+addr[0]+":"+addr[1]+colors.NONE, "has joined!")
 		s.clients.Set(id, ServerClient(id, name, addr[0], port))
 		c, _ := s.clients.Get(id)
-		s.send(c, CONNECT_HEADER + string(id))
+		s.send(c, CONNECT_HEADER+string(id))
 	case strings.HasPrefix(content, DISCONNECT_HEADER):
 		id := strings.Split(content[3:], "/")[0][:35]
 		s.disconnect(uuid.UUID(id), "leave")
@@ -268,8 +272,8 @@ func (s *Server) sendAll(data string) {
 		parts := strings.Split(data[3:], "/")
 		sender := parts[0]
 		t := parts[1]
-		message := data[len(sender) + 10:]
-		s.Println("[" + colors.LIGHT_RED + t + colors.NONE + "] <" + colors.LIGHT_BLUE + sender + colors.NONE + ">", message)
+		message := data[len(sender)+10:]
+		s.Println("["+colors.LIGHT_RED+t+colors.NONE+"] <"+colors.LIGHT_BLUE+sender+colors.NONE+">", message)
 	}
 
 	for c := range s.clients.Iter() {
@@ -285,7 +289,7 @@ func (s *Server) send(c *SClient, data string) {
 			defer conn.Close()
 		}
 
-		outside:
+	outside:
 		for {
 			if c.attempt >= maxAttempts {
 				s.disconnectClient(c, "timeout")
@@ -293,8 +297,8 @@ func (s *Server) send(c *SClient, data string) {
 			}
 
 			if err != nil {
-				s.Println(SERVER_HEADER(s), "Couldn't reach client :", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE, "(attempt:", c.attempt, ")")
-				s.Println(strings.Repeat(" ", len(s.name) + 1), colors.RED + err.Error(), colors.NONE)
+				s.Println(SERVER_HEADER(s), "Couldn't reach client :", colors.LIGHT_CYAN+c.name+colors.NONE+"@"+colors.LIGHT_GREEN+ca+colors.NONE, "(attempt:", c.attempt, ")")
+				s.Println(strings.Repeat(" ", len(s.name)+1), colors.RED+err.Error(), colors.NONE)
 				conn, err = net.Dial("tcp", ca)
 				c.attempt++
 				time.Sleep(time.Second)
@@ -303,8 +307,8 @@ func (s *Server) send(c *SClient, data string) {
 			_, err = conn.Write([]byte(data))
 
 			if err != nil {
-				s.Println(SERVER_HEADER(s), "couldn't send data to client", colors.LIGHT_BLUE + c.name + colors.NONE, "(attempt:", c.attempt, ")")
-				s.Println(strings.Repeat(" ", len(s.name) + 1), colors.RED, err.Error(), colors.NONE)
+				s.Println(SERVER_HEADER(s), "couldn't send data to client", colors.LIGHT_BLUE+c.name+colors.NONE, "(attempt:", c.attempt, ")")
+				s.Println(strings.Repeat(" ", len(s.name)+1), colors.RED, err.Error(), colors.NONE)
 				c.attempt++
 				time.Sleep(time.Second)
 				continue outside
@@ -335,8 +339,8 @@ func (s *Server) disconnectClient(c *SClient, reason string) {
 	s.clients.Remove(c.id)
 	s.sendAll(DISCONNECT_HEADER + c.name + "/" + timestamp() + "/" + reason)
 
-	s.Print(TS(), " Client ", colors.LIGHT_CYAN + c.name + colors.NONE + "@" + colors.LIGHT_GREEN + ca + colors.NONE, " ")
-	s.send(c, DISCONNECT_HEADER + c.name + "/" + timestamp() + "/" + reason)
+	s.Print(TS(), " Client ", colors.LIGHT_CYAN+c.name+colors.NONE+"@"+colors.LIGHT_GREEN+ca+colors.NONE, " ")
+	s.send(c, DISCONNECT_HEADER+c.name+"/"+timestamp()+"/"+reason)
 	switch reason {
 	case "kick":
 		s.Println("has been kicked from the server.")

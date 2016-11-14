@@ -1,7 +1,8 @@
-package server
+package old_server
 
 import (
 	"sync"
+
 	"github.com/Spriithy/go-uuid"
 )
 

@@ -1,11 +1,12 @@
-package server
+package old_server
 
 import (
-	"log"
-	"github.com/jroimartin/gocui"
-	"github.com/Spriithy/gochat-term/server/src/ui"
 	"fmt"
+	"log"
 	"sync"
+
+	"github.com/Spriithy/gochat-term/server/src/ui"
+	"github.com/jroimartin/gocui"
 )
 
 type ServerUI struct {
@@ -13,14 +14,14 @@ type ServerUI struct {
 	in, out *ui.Panel
 
 	sync.RWMutex
-	input   string
+	input string
 }
 
 func NewServerUI() *ServerUI {
 	return new(ServerUI)
 }
 
-func (s *ServerUI) Print(a ... interface{}) {
+func (s *ServerUI) Print(a ...interface{}) {
 	s.out.Append(a...)
 	v, err := s.g.View("out")
 	if err != nil {
@@ -32,7 +33,7 @@ func (s *ServerUI) Print(a ... interface{}) {
 	}
 }
 
-func (s *ServerUI) Println(a ... interface{}) {
+func (s *ServerUI) Println(a ...interface{}) {
 	s.out.Appendln(a...)
 	v, err := s.g.View("out")
 	if err != nil {
@@ -59,14 +60,14 @@ func (s *ServerUI) Start() {
 	s.g.FgColor = gocui.ColorWhite
 
 	_, my := s.g.Size()
-	s.in = ui.NewPanel("in", "", 2, my - 3, 1, 1)
+	s.in = ui.NewPanel("in", "", 2, my-3, 1, 1)
 	s.in.SetBordered(false)
 	s.in.SetEditable(true)
 	s.in.OnUpdate(func(g *gocui.Gui) error {
 		if err != nil {
 			return err
 		}
-		if err = g.SetKeybinding("in", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v*gocui.View) error {
+		if err = g.SetKeybinding("in", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 			s.Lock()
 			defer s.Unlock()
 			s.input = v.Buffer()
