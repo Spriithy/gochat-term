@@ -1,14 +1,16 @@
 package main
 
 import (
-	"net"
-	"strings"
-	"github.com/Spriithy/go-colors"
-	"os"
-	"os/signal"
 	"bufio"
 	"fmt"
+	"net"
+	"os"
+	"os/signal"
 	"regexp"
+	"strings"
+
+	"github.com/Spriithy/go-colors"
+	"github.com/Spriithy/gochat-term/network"
 )
 
 var (
@@ -16,10 +18,9 @@ var (
 		print("\033[H\033[2J")
 	}
 
-	MSG_HEADER = "/M/"
-	CONNECT_HEADER = "/C/"
-	DISCONNECT_HEADER = "/D/"
-	PING_HEADER = "/P/"
+	MSG_HEADER        = "\\M\\"
+	CONNECT_HEADER    = "\\C\\"
+	DISCONNECT_HEADER = "\\D\\"
 )
 
 var ID string
@@ -28,7 +29,7 @@ func regSplit(text string, delimeter string) []string {
 	reg := regexp.MustCompile(delimeter)
 	indexes := reg.FindAllStringIndex(text, -1)
 	laststart := 0
-	result := make([]string, len(indexes) + 1)
+	result := make([]string, len(indexes)+1)
 	for i, element := range indexes {
 		result[i] = text[laststart:element[0]]
 		laststart = element[1]
@@ -41,10 +42,10 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter username: ")
 	text, _ := reader.ReadString('\n')
-	name := regSplit(text[:len(text) - 1], "[ \t\r\n]+")[0]
+	name := regSplit(text[:len(text)-1], "[ \t\r\n]+")[0]
 	clear()
 
-	conn, err := net.Dial("tcp", "192.168.0.10:8081")
+	conn, err := net.Dial("tcp", "127.0.0.1:8081")
 	if err != nil {
 		panic(err)
 	}
@@ -60,7 +61,7 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {
-		conn, err := net.Dial("tcp", "192.168.0.10:8081")
+		conn, err := net.Dial("tcp", "127.0.0.1:8081")
 		if err != nil {
 			panic(err)
 		}
@@ -82,7 +83,7 @@ func main() {
 			panic(err)
 		}
 
-		data = make([]byte, 1024)
+		data = make([]byte, network.MaxPacketSize)
 		conn.Read(data)
 		go process(conn, data)
 	}
@@ -101,14 +102,14 @@ func process(conn net.Conn, data []byte) {
 func send(addr, data string) {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		println("[" + colors.LIGHT_RED + "error" + colors.NONE + "]", "Couldn't reach server at", colors.LIGHT_GREEN + addr + colors.NONE)
-		println(strings.Repeat(" ", 7 - 1), colors.RED, err.Error(), colors.NONE)
+		println("["+colors.RED+"error"+colors.NONE+"]", "Couldn't reach server at", colors.GREEN+addr+colors.NONE)
+		println(strings.Repeat(" ", 7-1), colors.RED, err.Error(), colors.NONE)
 		return
 	}
-	_, err = conn.Write([]byte(data))
+	_, err = conn.Write([]byte("\\C\\" + network.GetTimeStamp().String() + data))
 
 	if err != nil {
-		println("[" + colors.LIGHT_RED + "error" + colors.NONE + "]", colors.RED + "couldn't send data to server :")
+		println("["+colors.RED+"error"+colors.NONE+"]", colors.RED+"couldn't send data to server :")
 		println(strings.Repeat(" ", 7), err.Error(), colors.NONE)
 	}
 }

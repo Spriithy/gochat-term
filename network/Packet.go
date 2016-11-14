@@ -1,4 +1,4 @@
-package server
+package network
 
 import (
 	"errors"
@@ -129,25 +129,16 @@ type Packet interface {
 
 // CompilePacket compiles an input connection into an actual Packet
 //
-func CompilePacket(conn net.Conn) (Packet, error) {
-	var err error
-
-	b := make([]byte, MaxPacketSize)
-
-	_, err = conn.Read(b)
-	if err != nil {
-		return nil, err
-	}
-
-	switch b[1] {
+func CompilePacket(conn net.Conn, data []byte) (Packet, error) {
+	switch data[1] {
 	case ConnectHeader, DisconnectHeader:
-		return NewConnectionPacket(conn)
+		return NewConnectionPacket(conn, data)
 	case MessageHeader:
-		return NewMessagePacket(conn)
+		return NewMessagePacket(conn, data)
 	}
 
 	// always try ?
-	return newDataPacket(conn)
+	return newDataPacket(conn, data)
 }
 
 // DataPacket is the simplest kind of Packet a server can handle
@@ -169,15 +160,13 @@ type dataPacket struct {
 
 // NewDataPacket tries to compile down a connection into a DataPacket
 // The function only panics if the TimeStamp format is not respected
-func newDataPacket(conn net.Conn) (*dataPacket, error) {
+func newDataPacket(conn net.Conn, data []byte) (*dataPacket, error) {
 	var (
 		err error
-		b   []byte
 		p   *dataPacket
 	)
 
 	p = new(dataPacket)
-	b = make([]byte, MaxPacketSize)
 	p.id = uuid.NextUUID()
 
 	a := strings.Split(conn.RemoteAddr().String(), ":") // recover Packet address infos
@@ -187,12 +176,7 @@ func newDataPacket(conn net.Conn) (*dataPacket, error) {
 		return nil, errors.New("couldn't read DataPacket port")
 	}
 
-	n, err := conn.Read(b)
-	if err != nil {
-		return nil, err
-	}
-
-	h := b[1] // bruteforce extract the PacketHeader from the sources
+	h := data[1] // bruteforce extract the PacketHeader from the sources
 	switch h {
 	case ConnectHeader, DisconnectHeader, MessageHeader:
 		p.header = PacketHeader(h)
@@ -200,14 +184,15 @@ func newDataPacket(conn net.Conn) (*dataPacket, error) {
 		return nil, errors.New("unknown PacketHeader `" + string(h) + "`")
 	}
 
-	t, err := ParseTimeStamp(string(b[3:12]))
+	// 11 = fixed header buffer size
+	t, err := ParseTimeStamp(string(data[3:11]))
 	if err != nil {
 		return nil, err
 	}
 	p.time = t
 
-	// 12 = fixed metadata
-	p.content = string(b[12:n])
+	// 12 = fixed metadata size
+	p.content = string(data[12:])
 
 	return p, nil
 }
@@ -249,7 +234,7 @@ type ConnectionPacket struct {
 // NewConnectionPacket tries to compile down a connection into a ConnectionPacket
 // If the username
 //
-func NewConnectionPacket(conn net.Conn) (*ConnectionPacket, error) {
+func NewConnectionPacket(conn net.Conn, data []byte) (*ConnectionPacket, error) {
 	var (
 		err error
 		p   *ConnectionPacket
@@ -257,7 +242,7 @@ func NewConnectionPacket(conn net.Conn) (*ConnectionPacket, error) {
 
 	p = new(ConnectionPacket)
 
-	p.dataPacket, err = newDataPacket(conn)
+	p.dataPacket, err = newDataPacket(conn, data)
 	if err != nil {
 		return nil, err
 	}
@@ -320,14 +305,14 @@ type MessagePacket struct {
 
 // NewMessagePacket tries to compile a net.Conn packet input to a MessagePacket
 // that is compatible with the server.
-func NewMessagePacket(conn net.Conn) (*MessagePacket, error) {
+func NewMessagePacket(conn net.Conn, data []byte) (*MessagePacket, error) {
 	var (
 		err error
 		p   *MessagePacket
 	)
 
 	p = new(MessagePacket)
-	p.dataPacket, err = newDataPacket(conn)
+	p.dataPacket, err = newDataPacket(conn, data)
 	if err != nil {
 		return nil, err
 	}

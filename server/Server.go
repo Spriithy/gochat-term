@@ -7,7 +7,9 @@ import (
 	"fmt"
 
 	"github.com/Spriithy/go-colors"
-	uuid "github.com/Spriithy/go-uuid"
+	"github.com/Spriithy/go-uuid"
+	"github.com/Spriithy/gochat-term/network"
+	"github.com/Spriithy/gochat-term/server/client"
 )
 
 // fmt.Sprintf alias for code readability
@@ -38,10 +40,9 @@ type Server struct {
 	ip   string
 	port int
 
-	packets chan Packet
-	errors  chan error
-
 	running bool
+
+	pks chan network.Packet
 }
 
 // NewServer creates a new instance of a Server struct on the given port
@@ -52,12 +53,15 @@ func NewServer(name string, port int) *Server {
 	s.ip = here()
 	s.port = port
 
-	s.packets = make(chan Packet)
-	s.errors = make(chan error)
-
 	s.running = false
 
+	s.pks = make(chan network.Packet)
+
 	return s
+}
+
+func (s *Server) head() string {
+	return "[" + colors.RedString(network.GetTimeStamp()) + "][" + colors.PurpleString(s.name) + "]"
 }
 
 func (s *Server) log(a ...interface{}) {
@@ -65,6 +69,7 @@ func (s *Server) log(a ...interface{}) {
 }
 
 func (s *Server) logln(a ...interface{}) {
+	print(s.head(), " ")
 	fmt.Println(a...)
 }
 
@@ -80,67 +85,78 @@ func (s *Server) Start() {
 		sem <- 0
 	}()
 
+	go func() {
+		for {
+			p := <-s.pks
+			println("[ PACKET ]----------------------")
+			fmt.Println(p.From())
+			println(format("%c", p.Header()))
+			println(p.TimeStamp().String())
+			println(p.ID())
+			println(p.Content())
+			println("--------------------------------")
+		}
+	}()
+
 	<-sem
 }
 
 func (s *Server) listen() {
+	var (
+		conn net.Conn
+		data []byte
+		err  error
+	)
+
 	address := format("%s:%d", s.ip, s.port)
 
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		s.logln(colors.RedString("Error when listening :\n", err.Error()))
+		s.logln("couldn't listen on", address)
 		os.Exit(1)
 	}
 	defer l.Close()
 
-	s.logln("Server is now running on", colors.GreenString(address))
-	var conn net.Conn
-	for s.running {
+	s.logln("Server started on", colors.GreenString(address))
+	for {
+		if conn != nil {
+			// close previous connection if need be
+			conn.Close()
+		}
+
+		data = make([]byte, network.MaxPacketSize)
 		conn, err = l.Accept()
 		if err != nil {
+			s.logln(err)
 			continue
 		}
 
-		p, err := CompilePacket(conn)
+		n, err := conn.Read(data)
+
 		if err != nil {
-			s.logln(colors.RedString("Couldn't decode incoming Packet, ignoring it."))
+			s.logln("couldn't read packet")
+			s.logln(err)
+			continue
 		}
-		s.packets <- p
+
+		go s.emmit(conn, data[:n])
 	}
 }
 
-func (s *Server) process() {
-	var (
-		p  Packet
-		cp ConnectionPacket
-		mp MessagePacket
-	)
-
-	p = <-s.packets
-	switch p.(type) {
-	case ConnectionPacket:
-		cp = p.(ConnectionPacket)
-
-		switch cp.Header() {
-		case ConnectHeader:
-			// TODO Add client
-		case DisconnectHeader:
-			// TODO Remove client
-		default:
-			// should never be reached
-			return
-		}
-	case MessagePacket:
-		mp = p.(MessagePacket)
-		s.sendAll(MessageHeader, mp.Message())
+func (s *Server) emmit(conn net.Conn, data []byte) {
+	println(string(data))
+	p, err := network.CompilePacket(conn, []byte("\\C\\"+network.GetTimeStamp().String()+"\\yolo\\hey\\content"))
+	if err != nil {
+		panic(err)
 	}
+	s.pks <- p
 }
 
-func (s *Server) sendAll(h PacketHeader, content string) {
+func (s *Server) sendAll(h network.PacketHeader, content string) {
 
 }
 
-func (s *Server) send(c *Client, h PacketHeader, context string) {
+func (s *Server) send(c *server.Client, h network.PacketHeader, context string) {
 
 }
 
@@ -148,7 +164,7 @@ func (s *Server) disconnect(id uuid.UUID, reason string) {
 
 }
 
-func (s *Server) disconnectClient(c *Client, reason string) {
+func (s *Server) disconnectClient(c *server.Client, reason string) {
 
 }
 

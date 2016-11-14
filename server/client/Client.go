@@ -1,13 +1,18 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"time"
 
 	"errors"
 
 	"github.com/Spriithy/go-uuid"
+	"github.com/Spriithy/gochat-term/network"
 )
+
+// fmt.Sprintf alias for code readability
+var format = fmt.Sprintf
 
 // MaxSendAttempts is the maximum amount of tries the Server will do
 // to send data to a Client. If the client couldn't be reached within
@@ -36,7 +41,7 @@ type Client struct {
 }
 
 // NewServerClient creates a new instance of a Client using its ConnectionPacket
-func NewServerClient(p *ConnectionPacket) *Client {
+func NewServerClient(p *network.ConnectionPacket) *Client {
 	ip, port := p.From()
 	return &Client{
 		id:       p.UserID(),
