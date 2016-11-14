@@ -23,6 +23,24 @@ func check(e error) {
 	}
 }
 
+func checkUsername(name string) (bool, error) {
+	if len(name) < 3 || len(name) > 16 {
+		return false, errors.New("src username is either too long or too short (min:3,max:16)")
+	}
+	for _, c := range name {
+		// Check for invalid characters ...
+		switch {
+		case unicode.IsSpace(c):
+			return false, errors.New("src username contains space(s)")
+		case unicode.IsPunct(c):
+			return false, errors.New("src username contains punctuation")
+		case unicode.IsSymbol(c):
+			return false, errors.New("src username contains symbol(s)")
+		}
+	}
+	return true, nil
+}
+
 // PacketHeader describes the possible Packet headers
 //
 type PacketHeader byte
@@ -40,9 +58,6 @@ const (
 
 	// MessageHeader is the header's representation of a MessagePacket
 	MessageHeader = 'M'
-
-	// WhisperHeader is the header's representation of a WhisperPacket
-	WhisperHeader = 'W'
 )
 
 // A TimeStamp is the internal representation of the time the Packet was emitted
@@ -143,7 +158,7 @@ func newDataPacket(conn net.Conn) (*dataPacket, error) {
 
 	h := b[1] // bruteforce extract the PacketHeader from the sources
 	switch h {
-	case ConnectHeader, DisconnectHeader, MessageHeader, WhisperHeader:
+	case ConnectHeader, DisconnectHeader, MessageHeader:
 		p.header = PacketHeader(h)
 	default:
 		return nil, errors.New("unknown PacketHeader `" + string(h) + "`")
@@ -213,8 +228,9 @@ func NewConnectionPacket(conn net.Conn) (*ConnectionPacket, error) {
 
 	switch p.header {
 	case ConnectHeader, DisconnectHeader:
+		//
 	default:
-		return nil, errors.New("cannot read non-connection related Packet as ConnectionPacket")
+		return nil, errors.New("cannot read non-connection related Packet as new ConnectionPacket")
 	}
 
 	split := strings.Split(p.content, "\\")
@@ -226,20 +242,9 @@ func NewConnectionPacket(conn net.Conn) (*ConnectionPacket, error) {
 	p.userID = id
 
 	name := split[1]
-	if len(name) < 3 || len(name) > 16 {
-		// We must refuse connection to server if username is not as expected
-		return nil, errors.New("username is either too long or too short (min:3,max:16)")
-	}
-	for _, c := range name {
-		// Check for invalid characters ...
-		switch {
-		case unicode.IsSpace(c):
-			return nil, errors.New("username contains space(s)")
-		case unicode.IsPunct(c):
-			return nil, errors.New("username contains punctuation")
-		case unicode.IsSymbol(c):
-			return nil, errors.New("username contains symbol(s)")
-		}
+	if ok, err := checkUsername(name); !ok {
+		// check for username validity
+		return nil, err
 	}
 	p.userName = name
 
@@ -260,4 +265,98 @@ func (p *ConnectionPacket) UserID() uuid.UUID {
 // UserName returns the user's Packet owner username
 func (p *ConnectionPacket) UserName() string {
 	return p.userName
+}
+
+// A MessagePacket is a simple structure to define a Message sent on the server
+// It has a emmitter (src) that is identified by its ID (srcID) and a destinator
+// that is either a username or a empty. If empty, the message is sent to the whole
+// chat room.
+//
+// A valid MessagePacket follows the pattern :
+//  \H\HH:MM:SS\<uuid>\src\dst\message
+type MessagePacket struct {
+	*dataPacket
+	srcID uuid.UUID
+	src   string
+	dst   string
+	msg   string
+}
+
+// NewMessagePacket tries to compile a net.Conn packet input to a MessagePacket
+// that is compatible with the server.
+func NewMessagePacket(conn net.Conn) (*MessagePacket, error) {
+	var (
+		err error
+		p   *MessagePacket
+	)
+
+	p = new(MessagePacket)
+	p.dataPacket, err = newDataPacket(conn)
+	if err != nil {
+		return nil, err
+	}
+
+	switch p.header {
+	case MessageHeader:
+		//
+	default:
+		return nil, errors.New("cannot read non-message packet as new MessagePacket")
+	}
+
+	split := strings.Split(p.content, "\\")
+
+	id, err := uuid.ParseUUID(split[0])
+	if err != nil {
+		return nil, err
+	}
+	p.srcID = id
+
+	src := split[1]
+
+	if ok, err := checkUsername(src); !ok {
+		// check for username validity
+		return nil, err
+	}
+	p.src = src
+
+	dst := split[1]
+	switch len(dst) {
+	case 0:
+		// send to all
+	default:
+		if ok, err := checkUsername(dst); !ok {
+			// check for username validity
+			return nil, err
+		}
+		p.dst = dst
+	}
+
+	for i, str := range split[1:] {
+		p.msg += str // reconstruct possible fragmented message
+		if i > 1 {
+			p.msg += "\\"
+		}
+	}
+
+	return p, nil
+}
+
+// SourceID returns the emmiter's ID
+func (p *MessagePacket) SourceID() uuid.UUID {
+	return p.srcID
+}
+
+// Source returns the source's name
+func (p *MessagePacket) Source() string {
+	return p.src
+}
+
+// Destination returns the MessagePacket's destinator(s)
+func (p *MessagePacket) Destination() string {
+	return p.dst
+}
+
+// Content : Overwrite dataPacket.Conten() to return only the message's content
+func (p *MessagePacket) Content() string {
+	return p.msg
 }
