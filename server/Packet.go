@@ -81,11 +81,25 @@ func ParseTimeStamp(str string) (*TimeStamp, error) {
 	}
 
 	h, err := strconv.Atoi(t[0])
-	check(err)
+	if err != nil {
+		return nil, err
+	} else if h > 23 || h < 0 {
+		return nil, errors.New("out of bounds hour in ParseTimeStamp")
+	}
+
 	m, err := strconv.Atoi(t[1])
-	check(err)
+	if err != nil {
+		return nil, err
+	} else if m > 59 || m < 0 {
+		return nil, errors.New("out of bounds minute in ParseTimeStamp")
+	}
+
 	s, err := strconv.Atoi(t[2])
-	check(err)
+	if err != nil {
+		return nil, err
+	} else if s > 59 || s < 0 {
+		return nil, errors.New("out of bounds second in ParseTimeStamp")
+	}
 
 	return &TimeStamp{h, m, s}, nil
 }
