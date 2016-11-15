@@ -340,7 +340,7 @@ func NewMessagePacket(conn net.Conn, data []byte) (*MessagePacket, error) {
 	}
 	p.src = src
 
-	dst := split[1]
+	dst := split[2]
 	switch len(dst) {
 	case 0:
 		// send to all
@@ -352,11 +352,11 @@ func NewMessagePacket(conn net.Conn, data []byte) (*MessagePacket, error) {
 		p.dst = dst
 	}
 
-	for i, str := range split[1:] {
-		p.msg += str // reconstruct possible fragmented message
-		if i > 1 {
+	for i, str := range split[3:] {
+		if i >= 1 && i+1 != len(split) {
 			p.msg += "\\"
 		}
+		p.msg += str // reconstruct possible fragmented message
 	}
 
 	return p, nil
