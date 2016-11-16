@@ -23,3 +23,28 @@ func TestTimeStampParsing(t *testing.T) {
 		}
 	}
 }
+
+var sourceNames = map[string]bool{
+	"joncena": true, " ekl19": false, "S€€D3R01": false,
+	"\tbronks": false, "\nnewline": false, "-jon-connor18": false,
+	"mickeal_\\phelps": false, "   ": false, "Springwater64": true,
+}
+
+func TestUsername(t *testing.T) {
+	for s, v := range sourceNames {
+		if ok, err := checkUsername(s); ok {
+			if v {
+				t.Logf("%s correctly matched", s)
+				continue
+			}
+			t.Errorf("%s shouldn't have matched", s)
+		} else {
+			if v {
+				t.Errorf("%s should have matched", s)
+				t.Error(err)
+				continue
+			}
+			t.Logf("%s correctly didn't match", s)
+		}
+	}
+}
