@@ -12,13 +12,17 @@ import (
 	"github.com/Spriithy/gochat-term/server/client"
 )
 
+var bold = colors.Bold
+var none = colors.None
+
 // fmt.Sprintf alias for code readability
 var format = fmt.Sprintf
 
-func here() string {
+// Here Returns the local address
+func Here() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		println(colors.RedString("Error recording net interfaces :", err.Error()))
+		println(colors.Red(bold, "Error recording net interfaces :", err.Error()))
 		os.Exit(1)
 	}
 
@@ -33,9 +37,17 @@ func here() string {
 	return "127.0.0.1"
 }
 
-// Server is the struct defining a gochat-term Server
+// Server is a basic Server wrapper interface
 //
-type Server struct {
+type Server interface {
+	Log(...interface{})
+	Logln(...interface{})
+	Error(...interface{})
+	Start()
+	Quit()
+}
+
+type serv struct {
 	name string
 	ip   string
 	port int
@@ -47,10 +59,10 @@ type Server struct {
 
 // NewServer creates a new instance of a Server struct on the given port
 //
-func NewServer(name string, port int) *Server {
-	s := new(Server)
+func NewServer(name string, port int) Server {
+	s := new(serv)
 	s.name = name
-	s.ip = here()
+	s.ip = Here()
 	s.port = port
 
 	s.running = false
@@ -60,21 +72,26 @@ func NewServer(name string, port int) *Server {
 	return s
 }
 
-func (s *Server) head() string {
-	return "[" + colors.RedString(network.GetTimeStamp()) + "][" + colors.PurpleString(s.name) + "]"
+func (s *serv) head() string {
+	return "[" + colors.Red(bold, network.GetTimeStamp()) + "][" + colors.Purple(none, s.name) + "]"
 }
 
-func (s *Server) log(a ...interface{}) {
+func (s *serv) Log(a ...interface{}) {
 	fmt.Print(a...)
 }
 
-func (s *Server) logln(a ...interface{}) {
+func (s *serv) Logln(a ...interface{}) {
 	print(s.head(), " ")
 	fmt.Println(a...)
 }
 
-// Start is the server's main loop and starts its own goroutine
-func (s *Server) Start() {
+func (s *serv) Error(a ...interface{}) {
+	print(s.head(), " ")
+	fmt.Println(colors.Red(bold, a...))
+}
+
+// Start is the serv's main loop and starts its own goroutine
+func (s *serv) Start() {
 	s.running = true
 
 	sem := make(chan byte)
@@ -88,20 +105,22 @@ func (s *Server) Start() {
 	go func() {
 		for {
 			p := <-s.pks
-			println("[ PACKET ]----------------------")
-			fmt.Println(p.From())
-			println(format("%c", p.Header()))
-			println(p.TimeStamp().String())
-			println(p.ID())
-			println(p.Content())
-			println("--------------------------------")
+			// Dispatch work
+			switch p.(type) {
+			case *network.MessagePacket:
+				_ = p.(*network.MessagePacket)
+			case *network.ConnectionPacket:
+				_ = p.(*network.ConnectionPacket)
+			default:
+				continue
+			}
 		}
 	}()
 
 	<-sem
 }
 
-func (s *Server) listen() {
+func (s *serv) listen() {
 	var (
 		conn net.Conn
 		data []byte
@@ -112,12 +131,12 @@ func (s *Server) listen() {
 
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		s.logln("couldn't listen on", address)
+		s.Logln("couldn't listen on", address)
 		os.Exit(1)
 	}
 	defer l.Close()
 
-	s.logln("Server started on", colors.GreenString(address))
+	s.Logln("Server started on", colors.Green(bold, address))
 	for {
 		if conn != nil {
 			// close previous connection if need be
@@ -127,47 +146,43 @@ func (s *Server) listen() {
 		data = make([]byte, network.MaxPacketSize)
 		conn, err = l.Accept()
 		if err != nil {
-			s.logln(err)
+			s.Logln(err)
 			continue
 		}
 
 		n, err := conn.Read(data)
 
 		if err != nil {
-			s.logln("couldn't read packet")
-			s.logln(err)
+			s.Logln("couldn't read packet")
+			s.Logln(err)
 			continue
 		}
 
-		go s.emmit(conn, data[:n])
+		s.emmit(conn, data[:n])
 	}
 }
 
-func (s *Server) emmit(conn net.Conn, data []byte) {
+func (s *serv) emmit(conn net.Conn, data []byte) {
 	println(string(data))
-	p, err := network.CompilePacket(conn, []byte("\\C\\"+network.GetTimeStamp().String()+"\\yolo\\hey\\content"))
+	p, err := network.Compile(conn, []byte("\\C\\"+network.GetTimeStamp().String()+"\\"+string(uuid.NextUUID())+"\\yolo\\hey\\put in your path \\usr\\bin\\"))
 	if err != nil {
 		panic(err)
 	}
 	s.pks <- p
 }
 
-func (s *Server) sendAll(h network.PacketHeader, content string) {
+func (s *serv) sendAll(h network.PacketHeader, content string) {}
+
+func (s *serv) send(c *server.Client, h network.PacketHeader, context string) {}
+
+func (s *serv) disconnect(id uuid.UUID, reason string) {
 
 }
 
-func (s *Server) send(c *server.Client, h network.PacketHeader, context string) {
+func (s *serv) disconnectClient(c *server.Client, reason string) {
 
 }
 
-func (s *Server) disconnect(id uuid.UUID, reason string) {
-
-}
-
-func (s *Server) disconnectClient(c *server.Client, reason string) {
-
-}
-
-func (s *Server) quit() {
-
+func (s *serv) Quit() {
+	s.running = false
 }

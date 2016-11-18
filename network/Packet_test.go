@@ -48,3 +48,14 @@ func TestUsername(t *testing.T) {
 		}
 	}
 }
+
+func TestServerPacket(t *testing.T) {
+	s, err := ServerPacket(SuccessCode, "this is a test")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	println(s.String())
+	println("\\", s.Content(), "\\")
+	println(s.TimeStamp().String())
+}

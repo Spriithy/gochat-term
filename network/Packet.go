@@ -3,19 +3,47 @@ package network
 import (
 	"errors"
 	"fmt"
-	"net"
-	"strconv"
-	"strings"
 	"time"
 
+	"net"
 	"unicode"
 
 	"github.com/Spriithy/go-uuid"
+	"github.com/Spriithy/springwater-db/serial"
 )
+
+// Packet format over the gochat-term protocol
+//
+// - There are several valid Packet types :
+//  	-> C|D for ConnectionPacket : connection status of clients, disconnections etc
+//  	-> M|W for MessagePacket	: Messages and Whispers sent through the Server
+//  	-> S   for ServerPacket 	: Server info (ie. restart, commands results)
+//
+// - ID is a general purpose UUID formatted as (xxxxxxxx-xxxx-xxxx-xxxxxxxxxxxxxxxx)
+// in hexadecimal digits (see uuid.UUID at gtihub.com/Spriithy/go-uuid)
+//
+// - CODE is one of :
+//  	-> 0x0 : success
+//  	-> 0x1 : permission error
+//  	-> 0x2 : server quit, restart
+//
+// - User
+//  	HEAD MMSS CONTENT\r\n
+//      Content format for :
+//  		-> Channel message	: ID MESSAGE
+//  		-> Whisper message	: ID to MESSAGE
+//  		-> Connection    	:
+// - Server
+//  	HEAD CODE MMSS CONTENT\r\n
+//
+
+var format = fmt.Sprintf
 
 // MaxPacketSize is the editable maximum size for packet content process
 // Default value = 1024
 var MaxPacketSize = 1 << 10
+
+const crlf = "\r\n"
 
 func check(e error) {
 	if e != nil {
@@ -41,83 +69,35 @@ func checkUsername(name string) (bool, error) {
 	return true, nil
 }
 
-// PacketHeader describes the possible Packet headers
-//
-type PacketHeader byte
-
 const (
-	// InvalidHeader is the PacketHeader 0 value, expressing that the received Packet
-	// has an unknown signature, or has no meaning for the Server
-	InvalidHeader = PacketHeader(iota)
-
-	// ConnectHeader is the header's representation of a connection Packet
-	ConnectHeader = 'C'
-
-	// DisconnectHeader is the header's representation of a Disconnec Packet
-	DisconnectHeader = 'D'
-
-	// MessageHeader is the header's representation of a MessagePacket
-	MessageHeader = 'M'
+	invalidHead = byte(iota)
+	joinHead    = 'J'
+	leaveHead   = 'L'
+	messageHead = 'M'
+	whisperHead = 'W'
+	serverHead  = 'S'
 )
 
-// A TimeStamp is the internal representation of the time the Packet was emitted
-//
-type TimeStamp struct {
-	Hours, Minutes, Seconds int
-}
+const (
+	minCode = '0' - 1
+	// SuccessCode is the code returned by the server if it didn't encounter any issue
+	SuccessCode = '0'
 
-// GetTimeStamp returns the TimeStamp of the current system time
-func GetTimeStamp() *TimeStamp {
-	t := time.Now()
-	return &TimeStamp{t.Hour(), t.Minute(), t.Second()}
-}
+	// PermissionErrorCode is used by the server to tell a client the action requested
+	// requires higher permissions
+	PermissionErrorCode = '1'
 
-// ParseTimeStamp parses the input string and tries to read it as a TimeStamp
-// Returns an error if str has not the expected format, panics if an error is encountered
-func ParseTimeStamp(str string) (*TimeStamp, error) {
-	t := strings.Split(str, ":")
-	if len(t) != 3 {
-		return nil, errors.New("invalid TimeStamp format to parse")
-	}
+	// ShutdownCode is the code used by the server to notify about its shutdown process
+	ShutdownCode = '2'
 
-	h, err := strconv.Atoi(t[0])
-	m, err := strconv.Atoi(t[1])
-	s, err := strconv.Atoi(t[2])
-
-	if err != nil {
-		return nil, errors.New("unmatchable digit pattern when parsing TimeStamp")
-	}
-
-	if h > 23 || h < 0 {
-		return nil, errors.New("out of bounds hour in ParseTimeStamp")
-	}
-
-	if m > 59 || m < 0 {
-		return nil, errors.New("out of bounds minute in ParseTimeStamp")
-	}
-
-	if s > 59 || s < 0 {
-		return nil, errors.New("out of bounds second in ParseTimeStamp")
-	}
-
-	return &TimeStamp{h, m, s}, nil
-}
-
-func (t *TimeStamp) String() string {
-	return fmt.Sprintf("%02d:%02d:%02d", t.Hours, t.Minutes, t.Seconds)
-}
+	maxCode = '9' + 1
+)
 
 // Packet is the interface of any valid Packet that the server can receive
 //
 type Packet interface {
-	// ID is the only possible way to authentify each Packet uniqueness
-	ID() uuid.UUID
-
-	// From returns the Address and Port from which the Packet has been sent
-	From() (string, int)
-
-	// Header returns the PacketHeader of the Packet
-	Header() PacketHeader
+	// Header returns the byte header of the Packet
+	Header() byte
 
 	// TimeStamp returns a pointer to the TimeStamp at which the Packet
 	// has been emitted
@@ -125,259 +105,168 @@ type Packet interface {
 
 	// Content returns the string content of the Packet
 	Content() string
+
+	// Transfer is used to send the Packet over the network to a given adress
+	Transfer(string, int) error
+
+	String() string
 }
 
-// CompilePacket compiles an input connection into an actual Packet
-//
-func CompilePacket(conn net.Conn, data []byte) (Packet, error) {
-	switch data[1] {
-	case ConnectHeader, DisconnectHeader:
-		return NewConnectionPacket(conn, data)
-	case MessageHeader:
-		return NewMessagePacket(conn, data)
+type serverPacket struct {
+	timeOffset    int
+	contentOffset int
+	crlfOffset    int
+	data          serial.Data
+}
+
+var metaSize = 5 + 2*serial.GetSize(serial.UInt8)
+
+// ServerPacket creates a server-emmitable packet ready to be sent of the network
+func ServerPacket(code byte, content string) (Packet, error) {
+	if code <= minCode || code >= maxCode {
+		return nil, errors.New("server code out of bounds")
 	}
 
-	// always try ?
-	return newDataPacket(conn, data)
+	if len(content)+metaSize > MaxPacketSize {
+		return nil, errors.New("content too long")
+	}
+
+	t := time.Now()
+	data := make(serial.Data, len(content)+metaSize)
+	ptr := data.WriteBytes(0, []byte{serverHead, ' ', code, ' '})
+
+	to := ptr
+	ptr = data.WriteUInt8(ptr, uint8(t.Minute()))
+	ptr = data.WriteUInt8(ptr, uint8(t.Second()))
+	ptr = data.WriteByte(ptr, ' ')
+
+	co := ptr
+	ptr = data.WriteBytes(ptr, []byte(content))
+
+	cr := ptr
+	ptr = data.WriteBytes(ptr, []byte(crlf))
+
+	return &serverPacket{to, co, cr, data}, nil
 }
 
-// DataPacket is the simplest kind of Packet a server can handle
-// It implements the Packet interface
-//
-// A default DataPacket looks like this :
-//      \H\HH:MM:SS\...
-// Where    H is the PacketHeader
-//          HH:MM:SS is the TimeStamp
-type dataPacket struct {
-	addr string
-	port int
-
-	header  PacketHeader
-	time    *TimeStamp
-	content string
-	id      uuid.UUID
+func (p *serverPacket) Header() byte {
+	return p.data[0]
 }
 
-// NewDataPacket tries to compile down a connection into a DataPacket
-// The function only panics if the TimeStamp format is not respected
-func newDataPacket(conn net.Conn, data []byte) (*dataPacket, error) {
-	var (
-		err error
-		p   *dataPacket
-	)
+func (p *serverPacket) TimeStamp() *TimeStamp {
+	m := p.data.ReadUInt8(p.timeOffset)
+	s := p.data.ReadUInt8(p.timeOffset + 1)
+	h := time.Now().Hour()
+	return &TimeStamp{Hours: h, Minutes: int(m), Seconds: int(s)}
+}
 
-	p = new(dataPacket)
-	p.id = uuid.NextUUID()
+func (p *serverPacket) Content() string {
+	return string(p.data[p.contentOffset:p.crlfOffset])
+}
 
-	a := strings.Split(conn.RemoteAddr().String(), ":") // recover Packet address infos
-	p.addr = a[0]
-	p.port, err = strconv.Atoi(a[1])
+func (p *serverPacket) Transfer(addr string, port int) error {
+	var err error
+
+	conn, err := net.Dial("tcp", format("%s:%d", addr, port))
 	if err != nil {
-		return nil, errors.New("couldn't read DataPacket port")
+		return err
+	}
+	defer conn.Close()
+
+	n, err := conn.Write([]byte(p.data))
+	if err != nil {
+		return err
 	}
 
-	h := data[1] // bruteforce extract the PacketHeader from the sources
-	switch h {
-	case ConnectHeader, DisconnectHeader, MessageHeader:
-		p.header = PacketHeader(h)
+	if n != len(p.data) { // edgy case really
+		return errors.New("message was sent uncomplete")
+	}
+
+	return nil
+}
+
+func (p *serverPacket) String() string {
+	return string(p.data)
+}
+
+type userPacket struct {
+	timeOffset    int
+	contentOffset int
+	crlfOffset    int
+	kind          byte
+	owner         uuid.UUID
+	data          serial.Data
+}
+
+var userMetaSize = 7 + 2*serial.GetSize(serial.UInt8)
+
+// UserPacket is used to wrap the data of a UserPacket over the network
+func UserPacket(kind byte, owner uuid.UUID, content string) (Packet, error) {
+	if owner == uuid.UUID("") {
+		owner = uuid.NextUUID()
+	}
+
+	data := make(serial.Data, MaxPacketSize)
+
+	t := time.Now()
+	ptr := data.WriteByte(0, kind)
+	ptr = data.WriteByte(ptr, ' ')
+
+	to := ptr
+	ptr = data.WriteUInt8(ptr, uint8(t.Minute()))
+	ptr = data.WriteUInt8(ptr, uint8(t.Second()))
+	ptr = data.WriteByte(ptr, ' ')
+
+	co := ptr
+	ptr = data.WriteBytes(ptr, []byte(content))
+
+	cr := ptr
+	ptr = data.WriteBytes(ptr, []byte(crlf))
+
+	switch kind {
+	case messageHead, whisperHead, joinHead, leaveHead:
+		return &userPacket{to, co, cr, kind, owner, data}, nil
 	default:
-		return nil, errors.New("unknown PacketHeader `" + string(h) + "`")
+		return nil, errors.New("invalid UserPacket kind")
 	}
+}
 
-	// 11 = fixed header buffer size
-	t, err := ParseTimeStamp(string(data[3:11]))
+func (p *userPacket) Header() byte {
+	return p.data[0]
+}
+
+func (p *userPacket) TimeStamp() *TimeStamp {
+	m := p.data.ReadUInt8(p.timeOffset)
+	s := p.data.ReadUInt8(p.timeOffset + 1)
+	h := time.Now().Hour()
+	return &TimeStamp{Hours: h, Minutes: int(m), Seconds: int(s)}
+}
+
+func (p *userPacket) Content() string {
+	return string(p.data[p.contentOffset:p.crlfOffset])
+}
+
+func (p *userPacket) Transfer(addr string, port int) error {
+	var err error
+
+	conn, err := net.Dial("tcp", format("%s:%d", addr, port))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	p.time = t
+	defer conn.Close()
 
-	// 12 = fixed metadata size
-	p.content = string(data[12:])
-
-	return p, nil
-}
-
-// ID returns the DataPacket's Unique ID
-func (p *dataPacket) ID() uuid.UUID {
-	return p.id
-}
-
-// From returns basic informations about the DataPacket source
-func (p *dataPacket) From() (string, int) {
-	return p.addr, p.port
-}
-
-// Header returns the DataPacket's header type
-func (p *dataPacket) Header() PacketHeader {
-	return p.header
-}
-
-// TimeStamp returns the DataPacket's source's TimeStamp at emmit time
-func (p *dataPacket) TimeStamp() *TimeStamp {
-	return p.time
-}
-
-// Content provides the DataPacket content, i.e. everything after the TimeStamp
-func (p *dataPacket) Content() string {
-	return p.content
-}
-
-// ConnectionPacket is the simplest kind of Packet a server can handle
-// It implements the Packet interface
-//
-type ConnectionPacket struct {
-	*dataPacket
-	userID   uuid.UUID
-	userName string
-}
-
-// NewConnectionPacket tries to compile down a connection into a ConnectionPacket
-// If the username
-//
-func NewConnectionPacket(conn net.Conn, data []byte) (*ConnectionPacket, error) {
-	var (
-		err error
-		p   *ConnectionPacket
-	)
-
-	p = new(ConnectionPacket)
-
-	p.dataPacket, err = newDataPacket(conn, data)
+	n, err := conn.Write([]byte(p.data))
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	switch p.header {
-	case ConnectHeader, DisconnectHeader:
-		//
-	default:
-		return nil, errors.New("cannot read non-connection related Packet as new ConnectionPacket")
+	if n != len(p.data) { // edgy case really
+		return errors.New("message was sent uncomplete")
 	}
 
-	split := strings.Split(p.content, "\\")
-
-	id, err := uuid.ParseUUID(split[0])
-	if err != nil {
-		return nil, err
-	}
-	p.userID = id
-
-	name := split[1]
-	if ok, err := checkUsername(name); !ok {
-		// check for username validity
-		return nil, err
-	}
-	p.userName = name
-
-	return p, nil
+	return nil
 }
 
-// Kind is a simple alias for p.Header()
-// This method exists for better code readability
-func (p *ConnectionPacket) Kind() PacketHeader {
-	return p.header
-}
-
-// UserID returns the user's Packet owner ID
-func (p *ConnectionPacket) UserID() uuid.UUID {
-	return p.userID
-}
-
-// UserName returns the user's Packet owner username
-func (p *ConnectionPacket) UserName() string {
-	return p.userName
-}
-
-// A MessagePacket is a simple structure to define a Message sent on the server
-// It has a emmitter (src) that is identified by its ID (srcID) and a destinator
-// that is either a username or a empty. If empty, the message is sent to the whole
-// chat room.
-//
-// A valid MessagePacket follows the pattern :
-//  \H\HH:MM:SS\<uuid>\src\dst\message
-type MessagePacket struct {
-	*dataPacket
-	srcID uuid.UUID
-	src   string
-	dst   string
-	msg   string
-}
-
-// NewMessagePacket tries to compile a net.Conn packet input to a MessagePacket
-// that is compatible with the server.
-func NewMessagePacket(conn net.Conn, data []byte) (*MessagePacket, error) {
-	var (
-		err error
-		p   *MessagePacket
-	)
-
-	p = new(MessagePacket)
-	p.dataPacket, err = newDataPacket(conn, data)
-	if err != nil {
-		return nil, err
-	}
-
-	switch p.header {
-	case MessageHeader:
-		//
-	default:
-		return nil, errors.New("cannot read non-message packet as new MessagePacket")
-	}
-
-	split := strings.Split(p.content, "\\")
-
-	id, err := uuid.ParseUUID(split[0])
-	if err != nil {
-		return nil, err
-	}
-	p.srcID = id
-
-	src := split[1]
-
-	if ok, err := checkUsername(src); !ok {
-		// check for username validity
-		return nil, err
-	}
-	p.src = src
-
-	dst := split[2]
-	switch len(dst) {
-	case 0:
-		// send to all
-	default:
-		if ok, err := checkUsername(dst); !ok {
-			// check for username validity
-			return nil, err
-		}
-		p.dst = dst
-	}
-
-	for i, str := range split[3:] {
-		if i >= 1 && i+1 != len(split) {
-			p.msg += "\\"
-		}
-		p.msg += str // reconstruct possible fragmented message
-	}
-
-	return p, nil
-}
-
-// SourceID returns the emmiter's ID
-func (p *MessagePacket) SourceID() uuid.UUID {
-	return p.srcID
-}
-
-// Source returns the source's name
-func (p *MessagePacket) Source() string {
-	return p.src
-}
-
-// Destination returns the MessagePacket's destinator(s)
-func (p *MessagePacket) Destination() string {
-	return p.dst
-}
-
-// Message : returns the Message-only part of the content
-func (p *MessagePacket) Message() string {
-	return p.msg
+func (p *userPacket) String() string {
+	return string(p.data)
 }
